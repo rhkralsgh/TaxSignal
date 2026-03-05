@@ -20,9 +20,9 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -32,14 +32,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -49,7 +46,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import project.taxsignal.model.SalaryResult
 import project.taxsignal.ui.theme.TaxSignalTheme
-import project.taxsignal.util.TaxCalculator
 import project.taxsignal.viewmodel.SalaryViewModel
 
 class MainActivity : ComponentActivity() {
@@ -172,7 +168,9 @@ fun SalaryResultCard(result: SalaryResult) {
 @Composable
 fun ResultRow(label: String, value: String, isBold: Boolean = false, isHighlight: Boolean = false) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(text = label)
@@ -182,7 +180,66 @@ fun ResultRow(label: String, value: String, isBold: Boolean = false, isHighlight
 
 @Composable
 fun TrafficLightScreen(viewModel: SalaryViewModel) {
+    // 월간 데이터 구독
+    val monthlyCardStr by viewModel.monthlyCardSpending.collectAsState()
+    val monthlyThreshold by viewModel.monthlyThreshold.collectAsState()
 
+    val currentSpending = monthlyCardStr.toLongOrNull() ?: 0L
+
+    // 월간 진행률 계산
+    val progress = if (monthlyThreshold > 0) {
+        (currentSpending.toFloat() / monthlyThreshold).coerceIn(0f, 1f)
+    } else 0f
+
+    // 월간 기준 신호등 로직
+    val (statusColor, statusMsg) = when {
+        monthlyThreshold == 0L -> MaterialTheme.colorScheme.outline to "급여를 먼저 입력해주세요"
+        currentSpending < monthlyThreshold -> Color(0xFFFFC107) to "목표까지 ${monthlyThreshold - currentSpending}원 남았습니다!"
+        else -> Color.Green to "이번 달 목표 달성!"
+    }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text(text = "이달의 소득공제 신호등", style = MaterialTheme.typography.headlineMedium)
+        Text(text = "연봉 25% 달성을 위한 월간 권장 소비량입니다.", style = MaterialTheme.typography.bodySmall)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.1f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(text = statusMsg, fontWeight = FontWeight.Bold, color = statusColor)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth().height(12.dp),
+                    color = statusColor,
+                    trackColor = statusColor.copy(alpha = 0.2f),
+                    strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "이번 달: ${currentSpending}원", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "월 목표: ${monthlyThreshold}원", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = monthlyCardStr,
+            onValueChange = { viewModel.onMonthlyCardChanged(it.filter { c -> c.isDigit() }) },
+            label = { Text("이번 달 카드 사용액") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }
 
 @Composable

@@ -20,7 +20,7 @@ class SalaryViewModel : ViewModel() {
     //계산 결과
     private val _salaryResult = MutableStateFlow<SalaryResult?>(null)
     val salaryResult: StateFlow<SalaryResult?> = _salaryResult.asStateFlow()
-
+    //월급 변경 시 호출
     fun onSalaryChanged(newValue: String) {
         _inputSalary.value = newValue
         val salaryAmount = newValue.toLongOrNull()
@@ -29,5 +29,33 @@ class SalaryViewModel : ViewModel() {
         } else {
             _salaryResult.value = null
         }
+    }
+
+    //소득공제 기준액 25% 계산
+    val taxThreshold: StateFlow<Long> = _salaryResult.map { result ->
+        result?.baseSalary?.let {
+            TaxCalculator.calculateThreshold(it) } ?: 0L
+    }.stateIn( //초기값 0, 10초 대기, 앱 종료 시 계산 중지
+        viewModelScope,
+        SharingStarted.WhileSubscribed(10000),
+        0L
+    )
+
+    // 월간 목표 소비량
+    val monthlyThreshold: StateFlow<Long> = taxThreshold.map { annualThreshold ->
+        if (annualThreshold > 0) annualThreshold / 12 else 0L
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(10000),
+        initialValue = 0L
+    )
+
+    //월간 카드 사용액
+    private val _monthlyCardSpending = MutableStateFlow("") // 카드 사용액 입력값
+    val monthlyCardSpending: StateFlow<String> = _monthlyCardSpending.asStateFlow()
+
+    //카드 사용액 변경 시 호출
+    fun onMonthlyCardChanged(newValue: String) {
+        _monthlyCardSpending.value = newValue
     }
 }

@@ -35,4 +35,8 @@ object TaxCalculator {
             localIncomeTax, actualPay
         )
     }
+
+    fun calculateThreshold(monthlySalary: Long): Long {
+        return (monthlySalary * 12 * 0.25).toLong()
+    }
 }
