@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import project.taxsignal.model.DeductionItem
 import project.taxsignal.model.SalaryResult
 import project.taxsignal.util.TaxCalculator
 
@@ -30,6 +31,38 @@ class SalaryViewModel : ViewModel() {
             _salaryResult.value = null
         }
     }
+
+    // 추가한 공제 항목 리스트
+    private val _additionalDeductions = MutableStateFlow<List<DeductionItem>>(emptyList())
+    val additionalDeductions = _additionalDeductions.asStateFlow()
+
+    // 추가 항목 총합
+    val totalAdditionalAmount = _additionalDeductions.map { list ->
+        list.sumOf { it.amount }
+    }.stateIn(
+        scope = viewModelScope,
+        SharingStarted.WhileSubscribed(10000),
+        0L
+    )
+
+    //항목 추가
+    fun addDeduction(name:String, amount: Long) {
+        _additionalDeductions.value += DeductionItem(name = name, amount = amount)
+    }
+
+    //항목 삭제
+    fun removeDeduction(id: Long) {
+        _additionalDeductions.value = _additionalDeductions.value.filter { it.id != id }
+    }
+
+    // 항목 리스트 중 '연금저축'항목 연간 총액 계산 - 절세팁 화면 연동
+    val annualPensionSaving: StateFlow<Long> = _additionalDeductions.map {list ->
+        list.filter { it.name == "연금저축" }.sumOf { it.amount } * 12
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(10000),
+        initialValue = 0L
+    )
 
     //소득공제 기준액 25% 계산
     val taxThreshold: StateFlow<Long> = _salaryResult.map { result ->
@@ -58,4 +91,5 @@ class SalaryViewModel : ViewModel() {
     fun onMonthlyCardChanged(newValue: String) {
         _monthlyCardSpending.value = newValue
     }
+
 }

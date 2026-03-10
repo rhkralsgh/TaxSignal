@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,31 +14,45 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -117,7 +132,9 @@ fun SalaryScreen(viewModel: SalaryViewModel) {
     val inputSalary by viewModel.inputSalary.collectAsState()
     val salaryResult by viewModel.salaryResult.collectAsState()
 
-    Column(modifier = Modifier.padding(16.dp)) {
+    val scrollState = rememberScrollState()
+
+    Column(modifier = Modifier.padding(16.dp).verticalScroll(scrollState)) {
         Text(text = "내 월급 입력", style = MaterialTheme.typography.headlineMedium)
 
         OutlinedTextField(
@@ -132,19 +149,32 @@ fun SalaryScreen(viewModel: SalaryViewModel) {
         Spacer(modifier = Modifier.height(20.dp))
 
         salaryResult?.let { result ->
-            SalaryResultCard(result)
+            SalaryResultCard(result, viewModel)
         }
     }
 }
 
 @Composable
-fun SalaryResultCard(result: SalaryResult) {
+fun SalaryResultCard(result: SalaryResult, viewModel: SalaryViewModel) {
+    val extraItems by viewModel.additionalDeductions.collectAsState()
+    val totalExtra by viewModel.totalAdditionalAmount.collectAsState()
+    var isAdding by remember { mutableStateOf(false) }
+    var selectedOption by remember { mutableStateOf("연금저축") } //선택한 옵션
+    var customName by remember { mutableStateOf("") } // 입력한 이름
+    var amountInput by remember { mutableStateOf("") } // 입력한 금액
+    val options = listOf("연금저축", "월세", "직접 입력")
+
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            ResultRow("예상 실수령액", "${result.actualPay}원", isBold = true, isHighlight = true)
+            ResultRow(
+                "최종 가용 현금",
+                "${result.actualPay - totalExtra}원",
+                isBold = true,
+                isHighlight = true
+            )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
@@ -154,13 +184,95 @@ fun SalaryResultCard(result: SalaryResult) {
                 color = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(8.dp))
-
+            // 법정 공제 내역
             ResultRow("국민연금", "-${result.nationalPension}원")
             ResultRow("건강보험", "-${result.healthInsurance}원")
             ResultRow("장기요양", "-${result.longTermCare}원")
             ResultRow("고용보험", "-${result.employmentInsurance}원")
             ResultRow("소득세", "-${result.incomeTax}원")
             ResultRow("지방소득세", "-${result.localIncomeTax}원")
+
+            // 사용자 추가 항목 리스트
+            extraItems.forEach { item ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "ㄴ ${item.name}", style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "-${item.amount}원", style = MaterialTheme.typography.bodySmall)
+                        IconButton(
+                            onClick = { viewModel.removeDeduction(item.id) },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if(!isAdding) {
+                OutlinedButton(
+                    onClick = {isAdding = true},
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Text("공제 항목 추가")
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    //항목 선택
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                        options.forEach {option ->
+                            FilterChip(
+                                selected = selectedOption == option,
+                                onClick = { selectedOption = option },
+                                label = {Text(option)},
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                        }
+                    }
+                    //직접 입력 이름 칸
+                    if(selectedOption == "직접 입력") {
+                        OutlinedTextField(
+                            value = customName,
+                            onValueChange = { customName = it },
+                            label = { Text("항목 이름") },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                        )
+                    }
+                    // 금액 입력 칸
+                    OutlinedTextField(
+                        value = amountInput,
+                        onValueChange = {amountInput = it.filter { c -> c.isDigit() } },
+                        label = {Text("월 금액")},
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { isAdding = false }) {Text("취소")}
+                        TextButton(onClick = {
+                            val finalName = if (selectedOption == "직접 입력") customName else selectedOption
+                            if (finalName.isNotEmpty() && amountInput.isNotEmpty()) {
+                                viewModel.addDeduction(finalName, amountInput.toLong())
+                                isAdding = false
+                                amountInput = ""
+                                customName = ""
+                            }
+                        },
+                            enabled = amountInput.isNotEmpty() && (selectedOption != "직접 입력" || customName.isNotEmpty())
+                        ) {Text("확인")}
+                    }
+                }
+            }
         }
     }
 }
