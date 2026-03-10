@@ -356,5 +356,82 @@ fun TrafficLightScreen(viewModel: SalaryViewModel) {
 
 @Composable
 fun SimulatorScreen(viewModel: SalaryViewModel) {
+    val annualPensionSaving by viewModel.annualPensionSaving.collectAsState()
+    val inputSalary by viewModel.inputSalary.collectAsState()
 
+    //연봉 계산
+    val annualSalary = (inputSalary.toLongOrNull() ?: 0L) * 12
+
+    //연봉 5,500만원 기준 공제율 설정(16.5% or 13.2%)
+    val taxRate = if(annualSalary > 0 && annualSalary <= 55_000_000L) 0.165 else 0.132
+    val ratePercentage = if (taxRate == 0.165) "16.5%" else "13.2%"
+    //예상 환금액
+    val expectedRefund = (annualPensionSaving * taxRate).toLong()
+
+    Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
+        Text(text = "💰 절세 시뮬레이터", style = MaterialTheme.typography.headlineMedium)
+        Text(text = "저축만으로 얻는 확실한 수익을 확인하세요.", style = MaterialTheme.typography.bodySmall)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Savings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(text = "연금저축 / IRP 혜택", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // 현재 상태 정보
+                DetailInfoRow("나의 연간 저축액", "${annualPensionSaving}원")
+                DetailInfoRow("적용 공제율 (지방세 포함)", ratePercentage)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 결과 표시 박스
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(text = "내년 초 예상 환급액", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            text = "${expectedRefund}원",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "* 연간 총 급여 ${annualSalary / 10000}만원 기준 공제율이 적용되었습니다.\n* 실제 환급액은 결정세액에 따라 달라질 수 있습니다.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+// 시뮬레이터 전용 소형 정보 로우
+@Composable
+fun DetailInfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
+        Text(text = value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    }
 }
