@@ -1,9 +1,7 @@
 package project.taxsignal.viewmodel
 
 import android.app.Application
-import androidx.compose.runtime.MutableState
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,8 +23,20 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
     val inputSalary: StateFlow<String> = _inputSalary.asStateFlow()
 
     //계산 결과
-    private val _salaryResult = MutableStateFlow<SalaryResult?>(null)
-    val salaryResult: StateFlow<SalaryResult?> = _salaryResult.asStateFlow()
+    //private val _salaryResult = MutableStateFlow<SalaryResult?>(null)
+    val salaryResult: StateFlow<SalaryResult?> =
+        _inputSalary.map { salary ->
+            val amount = salary.toLongOrNull()
+            if (amount != null) {
+                TaxCalculator.calculate(amount)
+            } else {
+                null
+            }
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            initialValue =  null
+        )
 
     init {
         viewModelScope.launch {
@@ -51,12 +61,6 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
     //월급 변경 시 호출
     fun onSalaryChanged(newValue: String) {
         _inputSalary.value = newValue
-        val salaryAmount = newValue.toLongOrNull()
-        if(salaryAmount != null) {
-            _salaryResult.value = TaxCalculator.calculate(salaryAmount)
-        } else {
-            _salaryResult.value = null
-        }
 
         viewModelScope.launch {
             dataStoreManager.saveSalary(newValue)
@@ -80,7 +84,7 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
     fun addDeduction(name:String, amount: Long) {
         val newItem = DeductionItem(id = System.currentTimeMillis(), name = name, amount = amount)
         val newList = _additionalDeductions.value + newItem
-        _additionalDeductions.value += DeductionItem(name = name, amount = amount)
+        _additionalDeductions.value += newList
 
         viewModelScope.launch {
             dataStoreManager.saveDeductions(newList)
@@ -107,7 +111,7 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
     )
 
     //소득공제 기준액 25% 계산
-    val taxThreshold: StateFlow<Long> = _salaryResult.map { result ->
+    val taxThreshold: StateFlow<Long> = salaryResult.map { result ->
         result?.baseSalary?.let {
             TaxCalculator.calculateThreshold(it) } ?: 0L
     }.stateIn( //초기값 0, 10초 대기, 앱 종료 시 계산 중지
