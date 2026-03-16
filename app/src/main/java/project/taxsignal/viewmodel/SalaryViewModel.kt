@@ -1,6 +1,8 @@
 package project.taxsignal.viewmodel
 
+import android.app.Application
 import androidx.compose.runtime.MutableState
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -9,11 +11,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import project.taxsignal.data.DataStoreManager
 import project.taxsignal.model.DeductionItem
 import project.taxsignal.model.SalaryResult
 import project.taxsignal.util.TaxCalculator
 
-class SalaryViewModel : ViewModel() {
+class SalaryViewModel(application: Application): AndroidViewModel(application) {
+    private val dataStoreManager = DataStoreManager(application)
+
     //사용자 입력값
     private val _inputSalary = MutableStateFlow("")
     val inputSalary: StateFlow<String> = _inputSalary.asStateFlow()
@@ -21,6 +27,27 @@ class SalaryViewModel : ViewModel() {
     //계산 결과
     private val _salaryResult = MutableStateFlow<SalaryResult?>(null)
     val salaryResult: StateFlow<SalaryResult?> = _salaryResult.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            launch {
+                dataStoreManager.salaryFlow.collect {
+                _inputSalary.value = it
+                }
+            }
+            launch {
+                dataStoreManager.cardSpendingFlow.collect {
+                    _monthlyCardSpending.value = it
+                }
+            }
+            launch {
+                dataStoreManager.deductionsFlow.collect {
+                    _additionalDeductions.value = it
+                }
+            }
+        }
+    }
+
     //월급 변경 시 호출
     fun onSalaryChanged(newValue: String) {
         _inputSalary.value = newValue
@@ -29,6 +56,10 @@ class SalaryViewModel : ViewModel() {
             _salaryResult.value = TaxCalculator.calculate(salaryAmount)
         } else {
             _salaryResult.value = null
+        }
+
+        viewModelScope.launch {
+            dataStoreManager.saveSalary(newValue)
         }
     }
 
@@ -47,12 +78,23 @@ class SalaryViewModel : ViewModel() {
 
     //항목 추가
     fun addDeduction(name:String, amount: Long) {
+        val newItem = DeductionItem(id = System.currentTimeMillis(), name = name, amount = amount)
+        val newList = _additionalDeductions.value + newItem
         _additionalDeductions.value += DeductionItem(name = name, amount = amount)
+
+        viewModelScope.launch {
+            dataStoreManager.saveDeductions(newList)
+        }
     }
 
     //항목 삭제
     fun removeDeduction(id: Long) {
+        val newList = _additionalDeductions.value.filter {it.id != id}
         _additionalDeductions.value = _additionalDeductions.value.filter { it.id != id }
+
+        viewModelScope.launch {
+            dataStoreManager.saveDeductions(newList)
+        }
     }
 
     // 항목 리스트 중 '연금저축'항목 연간 총액 계산 - 절세팁 화면 연동
@@ -90,6 +132,9 @@ class SalaryViewModel : ViewModel() {
     //카드 사용액 변경 시 호출
     fun onMonthlyCardChanged(newValue: String) {
         _monthlyCardSpending.value = newValue
+        viewModelScope.launch {
+            dataStoreManager.saveCardSpending(newValue)
+        }
     }
 
 }
