@@ -23,7 +23,6 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
     val inputSalary: StateFlow<String> = _inputSalary.asStateFlow()
 
     //계산 결과
-    //private val _salaryResult = MutableStateFlow<SalaryResult?>(null)
     val salaryResult: StateFlow<SalaryResult?> =
         _inputSalary.map { salary ->
             val amount = salary.toLongOrNull()
@@ -50,11 +49,6 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
                     _monthlyCardSpending.value = it
                 }
             }
-            launch {
-                dataStoreManager.deductionsFlow.collect {
-                    _additionalDeductions.value = it
-                }
-            }
         }
     }
 
@@ -66,49 +60,6 @@ class SalaryViewModel(application: Application): AndroidViewModel(application) {
             dataStoreManager.saveSalary(newValue)
         }
     }
-
-    // 추가한 공제 항목 리스트
-    private val _additionalDeductions = MutableStateFlow<List<DeductionItem>>(emptyList())
-    val additionalDeductions = _additionalDeductions.asStateFlow()
-
-    // 추가 항목 총합
-    val totalAdditionalAmount = _additionalDeductions.map { list ->
-        list.sumOf { it.amount }
-    }.stateIn(
-        scope = viewModelScope,
-        SharingStarted.WhileSubscribed(10000),
-        0L
-    )
-
-    //항목 추가
-    fun addDeduction(name:String, amount: Long) {
-        val newItem = DeductionItem(id = System.currentTimeMillis(), name = name, amount = amount)
-        val newList = _additionalDeductions.value + newItem
-        _additionalDeductions.value += newList
-
-        viewModelScope.launch {
-            dataStoreManager.saveDeductions(newList)
-        }
-    }
-
-    //항목 삭제
-    fun removeDeduction(id: Long) {
-        val newList = _additionalDeductions.value.filter {it.id != id}
-        _additionalDeductions.value = _additionalDeductions.value.filter { it.id != id }
-
-        viewModelScope.launch {
-            dataStoreManager.saveDeductions(newList)
-        }
-    }
-
-    // 항목 리스트 중 '연금저축'항목 연간 총액 계산 - 절세팁 화면 연동
-    val annualPensionSaving: StateFlow<Long> = _additionalDeductions.map {list ->
-        list.filter { it.name == "연금저축" }.sumOf { it.amount } * 12
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(10000),
-        initialValue = 0L
-    )
 
     //소득공제 기준액 25% 계산
     val taxThreshold: StateFlow<Long> = salaryResult.map { result ->

@@ -47,7 +47,7 @@ class DataStoreManager(private val context: Context) {
             it[DEDUCTIONS_KEY] = json
         }
     }
-    //추가 공제 리스트 읽기(JSONG 복구)
+    //추가 공제 리스트 읽기(JSON 복구)
     val deductionsFlow: Flow<List<DeductionItem>> = context.dataStore.data.map { prefs ->
         val json = prefs[DEDUCTIONS_KEY] ?: ""
         if (json.isEmpty()) {

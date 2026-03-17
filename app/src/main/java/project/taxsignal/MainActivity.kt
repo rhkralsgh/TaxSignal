@@ -59,19 +59,25 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import project.taxsignal.data.TaxRepository
+import project.taxsignal.data.TaxSignalDatabase
 import project.taxsignal.model.SalaryResult
 import project.taxsignal.ui.theme.TaxSignalTheme
 import project.taxsignal.viewmodel.SalaryViewModel
+import project.taxsignal.viewmodel.TaxViewModel
+import project.taxsignal.viewmodel.TaxViewModelFactory
 
 class MainActivity : ComponentActivity() {
-    private val viewModel: SalaryViewModel by viewModels()
-
+    private val salaryViewModel: SalaryViewModel by viewModels()
+    private val taxViewModel: TaxViewModel by viewModels() {
+        TaxViewModelFactory(TaxRepository(TaxSignalDatabase.getDatabase(this).deductionDao()))
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             TaxSignalTheme {
-                MainScreen(viewModel)
+                MainScreen(salaryViewModel, taxViewModel)
             }
         }
     }
@@ -84,7 +90,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Simulate: Screen("simulate", "절세 팁", Icons.Default.Savings)
 }
 @Composable
-fun MainScreen(viewModel: SalaryViewModel) {
+fun MainScreen(salaryViewModel: SalaryViewModel, taxViewModel: TaxViewModel) {
     val navController = rememberNavController()
     val items = listOf(Screen.Salary, Screen.TrafficLight, Screen.Simulate)
 
@@ -120,18 +126,26 @@ fun MainScreen(viewModel: SalaryViewModel) {
             startDestination = Screen.Salary.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(Screen.Salary.route) { SalaryScreen(viewModel) }
-            composable(Screen.TrafficLight.route) { TrafficLightScreen(viewModel) }
-            composable(Screen.Simulate.route) { SimulatorScreen(viewModel) }
+            composable(Screen.Salary.route) { SalaryScreen(salaryViewModel, taxViewModel) }
+            composable(Screen.TrafficLight.route) { TrafficLightScreen(salaryViewModel) }
+            composable(Screen.Simulate.route) {
+                val dbItems by taxViewModel.allItems.collectAsState()
+                val annualPensionSaving = dbItems
+                    .filter{ it.name == "연금저축" }
+                    .sumOf{ it.amount } * 12
+                SimulatorScreen(salaryViewModel, annualPensionSaving) }
         }
     }
 }
 
 @Composable
-fun SalaryScreen(viewModel: SalaryViewModel) {
-    val inputSalary by viewModel.inputSalary.collectAsState()
-    val salaryResult by viewModel.salaryResult.collectAsState()
-
+fun SalaryScreen(salaryViewModel: SalaryViewModel, taxViewModel: TaxViewModel) {
+    val inputSalary by salaryViewModel.inputSalary.collectAsState()
+    val salaryResult by salaryViewModel.salaryResult.collectAsState()
+    //Room DB 데이터를 실시간으로 가져옴
+    val dbDeductions by taxViewModel.allItems.collectAsState()
+    //총 추가 공제액 계산
+    val totalExtra = dbDeductions.sumOf {it.amount}
     val scrollState = rememberScrollState()
 
     Column(modifier = Modifier.padding(16.dp).verticalScroll(scrollState)) {
@@ -140,7 +154,7 @@ fun SalaryScreen(viewModel: SalaryViewModel) {
         OutlinedTextField(
             value = inputSalary,
             // 숫자만 적용 filter
-            onValueChange = { newValue -> viewModel.onSalaryChanged(newValue.filter { char -> char.isDigit() }) },
+            onValueChange = { newValue -> salaryViewModel.onSalaryChanged(newValue.filter { char -> char.isDigit() }) },
             label = { Text("세전 월급 (원)") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
@@ -149,15 +163,17 @@ fun SalaryScreen(viewModel: SalaryViewModel) {
         Spacer(modifier = Modifier.height(20.dp))
 
         salaryResult?.let { result ->
-            SalaryResultCard(result, viewModel)
+            SalaryResultCard(result, dbDeductions, totalExtra, taxViewModel)
         }
     }
 }
 
 @Composable
-fun SalaryResultCard(result: SalaryResult, viewModel: SalaryViewModel) {
-    val extraItems by viewModel.additionalDeductions.collectAsState()
-    val totalExtra by viewModel.totalAdditionalAmount.collectAsState()
+fun SalaryResultCard(result: SalaryResult,
+                     extraItems: List<project.taxsignal.model.DeductionItem>,
+                     totalExtra: Long,
+                     taxViewModel: TaxViewModel
+) {
     var isAdding by remember { mutableStateOf(false) }
     var selectedOption by remember { mutableStateOf("연금저축") } //선택한 옵션
     var customName by remember { mutableStateOf("") } // 입력한 이름
@@ -203,7 +219,7 @@ fun SalaryResultCard(result: SalaryResult, viewModel: SalaryViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "-${item.amount}원", style = MaterialTheme.typography.bodySmall)
                         IconButton(
-                            onClick = { viewModel.removeDeduction(item.id) },
+                            onClick = { taxViewModel.deleteItem(item) },
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
@@ -262,7 +278,7 @@ fun SalaryResultCard(result: SalaryResult, viewModel: SalaryViewModel) {
                         TextButton(onClick = {
                             val finalName = if (selectedOption == "직접 입력") customName else selectedOption
                             if (finalName.isNotEmpty() && amountInput.isNotEmpty()) {
-                                viewModel.addDeduction(finalName, amountInput.toLong())
+                                taxViewModel.addItem(finalName, amountInput.toLong())
                                 isAdding = false
                                 amountInput = ""
                                 customName = ""
@@ -355,8 +371,7 @@ fun TrafficLightScreen(viewModel: SalaryViewModel) {
 }
 
 @Composable
-fun SimulatorScreen(viewModel: SalaryViewModel) {
-    val annualPensionSaving by viewModel.annualPensionSaving.collectAsState()
+fun SimulatorScreen(viewModel: SalaryViewModel, annualPensionSaving: Long) {
     val inputSalary by viewModel.inputSalary.collectAsState()
 
     //연봉 계산
