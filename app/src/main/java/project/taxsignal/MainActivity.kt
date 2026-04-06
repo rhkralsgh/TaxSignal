@@ -130,10 +130,8 @@ fun MainScreen(salaryViewModel: SalaryViewModel, taxViewModel: TaxViewModel) {
             composable(Screen.TrafficLight.route) { TrafficLightScreen(salaryViewModel) }
             composable(Screen.Simulate.route) {
                 val dbItems by taxViewModel.allItems.collectAsState()
-                val annualPensionSaving = dbItems
-                    .filter{ it.name == "연금저축" }
-                    .sumOf{ it.amount } * 12
-                SimulatorScreen(salaryViewModel, annualPensionSaving) }
+                SimulatorScreen(salaryViewModel, dbItems)
+            }
         }
     }
 }
@@ -178,7 +176,7 @@ fun SalaryResultCard(result: SalaryResult,
     var selectedOption by remember { mutableStateOf("연금저축") } //선택한 옵션
     var customName by remember { mutableStateOf("") } // 입력한 이름
     var amountInput by remember { mutableStateOf("") } // 입력한 금액
-    val options = listOf("연금저축", "월세", "직접 입력")
+    val options = listOf("연금저축", "월세", "주택청약", "직접 입력")
 
     Card(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -371,71 +369,127 @@ fun TrafficLightScreen(viewModel: SalaryViewModel) {
 }
 
 @Composable
-fun SimulatorScreen(viewModel: SalaryViewModel, annualPensionSaving: Long) {
+fun SimulatorScreen(viewModel: SalaryViewModel, dbItems: List<project.taxsignal.model.DeductionItem>) {
     val inputSalary by viewModel.inputSalary.collectAsState()
 
     //연봉 계산
     val annualSalary = (inputSalary.toLongOrNull() ?: 0L) * 12
 
-    //연봉 5,500만원 기준 공제율 설정(16.5% or 13.2%)
-    val taxRate = if(annualSalary > 0 && annualSalary <= 55_000_000L) 0.165 else 0.132
-    val ratePercentage = if (taxRate == 0.165) "16.5%" else "13.2%"
-    //예상 환금액
-    val expectedRefund = (annualPensionSaving * taxRate).toLong()
+    //연간 납입액 합산 (Room DB 기반)
+    val annualPensionSaving = dbItems.filter { it.name == "연금저축" }.sumOf { it.amount } * 12
+    val annualRent = dbItems.filter { it.name == "월세" }.sumOf { it.amount } * 12
+    val annualHousing = dbItems.filter { it.name == "주택청약" }.sumOf { it.amount } * 12
+
+    //연금저축 세액공제 한도 및 예상 환급액 계산 (총급여 5,500만원 이하 16.5%, 초과 시 13.2%)
+    val pensionTaxRate = if (annualSalary > 0 && annualSalary <= 55_000_000L) 0.165 else 0.132
+    val pensionPercentage = if (pensionTaxRate == 0.165) "16.5%" else "13.2%"
+    val limitedPension = annualPensionSaving.coerceAtMost(9_000_000L)
+    val expectedPensionRefund = (limitedPension * pensionTaxRate).toLong()
+
+    //월세 세액공제 한도 및 예상 환급액 계산 (총급여 7천만원 이하 요건, 5,500만원 이하 17%, 초과 시 15%)
+    val rentTaxRate = if (annualSalary <= 55_000_000L) 0.17 else 0.15
+    val rentPercentage = if (rentTaxRate == 0.17) "17%" else "15%"
+    val limitedRent = annualRent.coerceAtMost(7_500_000L)
+    val expectedRentRefund = if (annualSalary > 0 && annualSalary <= 70_000_000L) {
+        (limitedRent * rentTaxRate).toLong()
+    } else 0L
+
+    //주택청약 소득공제 한도 및 예상 환급액 계산 (총급여 7천만원 이하 요건, 납입액의 40% 소득공제, 간이 한계세율 약 16.5% 반영)
+    val limitedHousing = annualHousing.coerceAtMost(3_000_000L)
+    val housingDeduction = if (annualSalary > 0 && annualSalary <= 70_000_000L) {
+        (limitedHousing * 0.4).toLong()
+    } else 0L
+    val expectedHousingRefund = (housingDeduction * 0.165).toLong()
+
+    //총 예상 환급액
+    val totalExpectedRefund = expectedPensionRefund + expectedRentRefund + expectedHousingRefund
 
     Column(modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState())) {
-        Text(text = "💰 절세 시뮬레이터", style = MaterialTheme.typography.headlineMedium)
-        Text(text = "저축만으로 얻는 확실한 수익을 확인하세요.", style = MaterialTheme.typography.bodySmall)
+        Text(text = "절세 시뮬레이터", style = MaterialTheme.typography.headlineMedium)
+        Text(text = "목적별 저축과 고정지출로 얻는 기여도를 확인하세요.", style = MaterialTheme.typography.bodySmall)
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        //총 예상 환급액 표시
         Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Savings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(text = "연금저축 / IRP 혜택", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
-
-                // 현재 상태 정보
-                DetailInfoRow("나의 연간 저축액", "${annualPensionSaving}원")
-                DetailInfoRow("적용 공제율 (지방세 포함)", ratePercentage)
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 결과 표시 박스
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(text = "내년 초 예상 환급액", style = MaterialTheme.typography.labelMedium)
-                        Text(
-                            text = "${expectedRefund}원",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
+            Column(
+                modifier = Modifier.padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(text = "내년 초 예상 총 환급액", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    text = "* 연간 총 급여 ${annualSalary / 10000}만원 기준 공제율이 적용되었습니다.\n* 실제 환급액은 결정세액에 따라 달라질 수 있습니다.",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = "${totalExpectedRefund}원",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        //연금저축 상세 내역 카드
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(text = "연금저축 / IRP 세액공제", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                DetailInfoRow("나의 연간 납입액", "${annualPensionSaving}원")
+                DetailInfoRow("적용 공제율 (지방세 포함)", pensionPercentage)
+                DetailInfoRow("예상 환급액", "${expectedPensionRefund}원")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        //월세 상세 내역 카드
+        if (annualSalary <= 70_000_000L) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "월세 세액공제", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                    DetailInfoRow("나의 연간 월세액", "${annualRent}원")
+                    DetailInfoRow("적용 공제율", rentPercentage)
+                    DetailInfoRow("예상 환급액", "${expectedRentRefund}원")
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        //주택청약 상세 내역 카드
+        if (annualSalary <= 70_000_000L) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(text = "주택청약 소득공제", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                    DetailInfoRow("나의 연간 납입액", "${annualHousing}원")
+                    DetailInfoRow("소득공제액 (납입액의 40%)", "${housingDeduction}원")
+                    DetailInfoRow("추정 절세액", "${expectedHousingRefund}원")
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        //주의사항 텍스트
+        Text(
+            text = "* 연간 총 급여 ${annualSalary / 10000}만원 기준 공제율이 적용되었습니다.\n* 실제 환급액은 결정세액 및 부양가족 여부에 따라 달라질 수 있습니다.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
